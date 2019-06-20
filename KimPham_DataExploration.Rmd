@@ -1,0 +1,375 @@
+---
+title: "Data Exploration - 2018 NYPD Motor Vehicle Collisions"
+author: "Kim Pham"
+date: "6/19/2019"
+output: html_document
+---
+
+This publication was designed to serve as a walk through my thought process and methods when exploring and cleaning data on NYPD Motor Vehicle Collisions Reports in 2018. 
+
+The data was retrieved from [NYC Open Data - NYPD Motor Vehicle Collisions](https://data.cityofnewyork.us/Public-Safety/NYPD-Motor-Vehicle-Collisions/h9gi-nx95).
+
+## Goal 
+
+Using NYPD Motor Vehicle Collision Reports from the year 2018, this document analyzes:
+
+* [*Question 1*] the time/date when motor vehicle collisions were most reported
+* [*Question 2*] the impact of motor vehicle collisions on injuries and death rates
+
+## Data Preliminary Cleaning and Filtering
+
+Since both questions are interested in motor vehicle collisions from 2018, let's do some preliminary data cleaning and filter for 2018 data.
+
+0. Load Libraries
+```{r message=FALSE}
+library(dplyr)
+library(tidyr)
+library(tidyverse)
+library(lubridate)
+library(ggplot2)
+library(plotly)
+```
+
+1. Import Data
+
+```{r eval=FALSE}
+df <- read.csv("NYPD_Motor_Vehicle_Collisions.csv")
+```
+
+2. Filter for 2018 Data
+
+```{r eval=FALSE}
+df$DATE <- as.Date(df$DATE, format="%m/%d/%Y") # convert DATE variable from factor to date format
+str(df$DATE) # confirm date format
+df18 <- filter(df, str_detect(DATE, '2018')) # filter for 2018
+saveRDS(df18, file = "NYPDCollisionReports_2018") # save filtered dataframe as RDS for easier load
+```
+
+```{r}
+df18 <- readRDS("NYPDCollisionReports_2018") # reload 2018 filtered dataframe 
+```
+
+3. Explore Data Structure
+
+```{r}
+str(df18)
+```
+There were 231491 total reports of collisions in 2018.
+
+Let's check for missing values.
+
+```{r}
+summary(df18)
+```
+
+There are NAs that exist. We'll continue with our analysis and make sense of them as needed by dive deeper into our analysis.
+
+## *Question 1*
+
+### In 2018, what were the best and worst times to be driving if collision safety was your only consideration?
+
+### Method
+
+1. Extract Important Variables
+2. Explore Filtered Data
+3. Visualize relationship of collision safety and time
+4. Conclude best/worst times to be driving in regards to collision safety
+5. Discuss limitations and concerns
+
+### 1. Extract Important Variables
+
+A row indicates everytime a motor vehicle collision occurred. If we only want to examine the relationship between time and vehicle collision, let's filter for the date, time, and unique.key from the 2018 data. The unique.key acts as an identifier for individually reported collisions, and we can analyze the relationship between the unique.key (or the occurrence of collisions) based on date and time.
+
+```{r}
+df18_Time <- select(df18, DATE, TIME, UNIQUE.KEY)
+```
+
+Let's go ahead and combine date and time into one variable using the R package lubridate.
+
+```{r}
+datetime <- as.POSIXct(paste(df18_Time$DATE, df18_Time$TIME), format="%Y-%m-%d %H:%M")
+df18_Time$DATETIME <- datetime
+```
+
+Let's convert the stand alone TIME variable from factor to hours and minute using the R package lubridate.
+
+```{r}
+df18_Time$TIME <- hm(df18_Time$TIME)
+```
+
+### 2. Explore Filtered Data
+
+```{r}
+str(df18_Time)
+summary(df18_Time)
+head(df18_Time)
+```
+
+The number of 2018 observations stay the same but our columns have decreased to represent 3 variables (i.e. date, time, and unique.key). 
+
+The date ranges from 2018-01-01 to 2018-12-31.
+The hour/minute ranges from 0 seconds to 23 hours and 59 Minutes.
+
+The date/hour/minute ranges from 2018-01-01 00:00:00 to 2018-12-31 23:59:00.
+
+```{r}
+df18_Time$UNIQUE.KEY %>% as.factor() %>% unique() %>% as.data.frame() %>% nrow()
+```
+
+There are a total of 231491 unique keys.
+
+```{r}
+sum(is.na(df18_Time$DATE)) 
+sum(is.na(df18_Time$TIME)) 
+sum(is.na(df18_Time$UNIQUE.KEY)) 
+sum(is.na(df18_Time$DATETIME)) 
+```
+
+There are no NAs.
+
+### 3. Visualize relationship of collision safety and time
+
+#### By Month
+
+```{r}
+topMonth <- df18_Time %>% group_by(month(df18_Time$DATETIME)) %>% count() %>% as.data.frame()
+topMonth
+mean(topMonth$n)
+
+df18_Time %>% 
+  mutate(month = month(df18_Time$DATETIME)) %>% 
+  ggplot(aes(x = month)) +
+    geom_bar() + scale_x_continuous("Month", breaks=c(1,2,3,4,5,6,7,8,9,10,11,12)) + 
+  geom_hline(yintercept = mean(topMonth$n)) + 
+  annotate(geom="text", x=2, y=20000, label="mean = 19290.92",
+              color="blue") +
+  ggtitle("Reported Motor Vehicle Collisions by Month")
+```
+
+On average, there were 19290.92 motor vehicle collisions reported per month in the year of 2018. May (20842), October (20810), and June (20790) were the top 3 months where motor vehicle collisions were most reported. February (15989) has the least reports, but note that February is also the shortest calendar month, so there are less days to report collisions than other months.
+
+#### By Weekday
+
+```{r}
+topWeekday <- df18_Time %>% group_by(wday(df18_Time$DATETIME)) %>% count() %>% as.data.frame()
+mean(topWeekday$n)
+df18_Time %>% 
+  mutate(wday = wday(df18_Time$DATETIME, label = TRUE)) %>% 
+  ggplot(aes(x = wday)) +
+  geom_bar() + ggtitle("Reported Motor Vehicle Collisions by Weekday") + 
+  annotate(geom="text", x=5.5, y=32000, label="mean = 33070.14",
+              color="blue") +   
+  geom_hline(yintercept = mean(topWeekday$n)) + 
+  geom_text(stat='count', aes(label=..count..), vjust=0)
+```
+
+On an average weekday, there are 33070.14 reported vehicle collisions.
+Fridays had the top reported motor vehicle collisions at 36919.
+Sundays had the least reported motor vehicle collisions at 26577.
+
+#### By Hour
+```{r}
+topHour <- df18_Time %>% group_by(hour(df18_Time$DATETIME)) %>% count() %>% as.data.frame()
+colnames(topHour) <- c("hour","n")
+p <- ggplot(data=topHour,aes(x=hour, y=n)) +
+    geom_bar(stat="identity") + ggtitle("Reported Motor Vehicle Collisions by Hour")
+ggplotly(p)
+```
+Since there are 24 hours, it would be messy to have the counts on the graph. As an alternative, we will use an interactive graph so that we can hover over the bar to see the hour and count of reported vehicle collisions for that hour. From the graph, we see that the distribution of reported motor vehicle collisions tends to happen between the hours of 14-17. We know that there tends to be rush hour between that time, so the increase in traffic of people commuting from work during that time may result in more collisions. Similarly, there is a peak between the hours of 8 and 9, which is also rush hour of when people are commuting to work.
+
+#### By Minute
+```{r}
+topMinute <- df18_Time %>% group_by(minute(df18_Time$DATETIME)) %>% count() %>% as.data.frame()
+colnames(topMinute) <- c("minute","n")
+p2 <- ggplot(data=topMinute,aes(x=minute, y=n)) +
+    geom_bar(stat="identity") + ggtitle("Reported Motor Vehicle Collisions by Minute")
+ggplotly(p2)
+```
+
+Since we have the data for minute, let's take a look at which minute of the hour have the most reported motor vehicle collisions. From our plot, minutes 0 and 30 have the highest reports. 
+
+During moments of collision, perhaps it's not always easy to capture the exact minute so capturing the time by the half hour seems reasonable. 
+
+Furthermore, we see there is a peak in reports every 5th minute (e.g. 5, 10, 15, 20...55). It's probably easier to confidently report a division of the hour by a multiple of 5 than it is a multiple of 2 for instance. 
+
+Minutes seems too granular and inaccurate so we won't include this analysis as a data highlight in the final report.
+
+### 4. Conclude best/worst times to be driving in regards to collision safety
+
+Based on reports of motor vehicle collision in the 2018 calendar year, we see the most often reports are happening during the month of May, on Friday, and during rush hour (8-9 in the morning) or (16-17 in the late afternoon) on the hour.
+
+### 5. Discuss limitations and concerns
+
+We looked at the top reports by month, weekday, hour, and minute. However, there was on average 19290.92 reports a month, or from a different perspective using the same data, there was on average 33070.14 reports on any given weekday. Furthermore, there was a left skewed distribution where most reports are between the hours of 8-0 when people are generally not sleeping compared to the hours of 0-8.
+
+There were a total of 231481 official motor vehicle collision reports in the year of 2018. We're not sure if this total amount is unusually low or high, so it would be interesting to compare total reports and patterns across previous years. That would help us understand how our sample size of reports from 2018 compare to the true mean and distribution of all historically reported motor vehicle collisions. 
+
+## *Question 2*
+
+In 2018, what effect did vehicle type have on injury and mortality rate given an accident?
+
+### Method
+1. Explore Data
+2. Extract Important Variables
+3. Visualize relationship between vehicle type and injury
+4. Visualize relationship between vehicle type and mortality
+5. Conclude relationship between vehicle type, injury, and mortality rate
+6. Discuss limitations and concerns
+
+### 1. Explore Data
+
+```{r}
+colnames(df18)
+```
+
+2. Extract Important Variables
+
+We are interested in looking at the effect of vehicle type to injury and mortality rates. So let's pull those variables out.
+
+```{r}
+vtype <- df18[,11:29]
+vtype <- vtype[,-c(9:13)] %>% select(-UNIQUE.KEY)
+head(vtype)
+```
+
+We ultimately want a table that describes the vehicle type, the count of injuries in total and by injury type, and the count of mortality rates in total and by injury type. Our current table has up to 5 vehicles that are reported as part of the collision. 
+
+We'll first sum the count of total injuries and mortality rates for each report.
+
+```{r}
+vtype$total_injury <- vtype$NUMBER.OF.PERSONS.INJURED + vtype$NUMBER.OF.PEDESTRIANS.INJURED + vtype$NUMBER.OF.CYCLIST.INJURED + vtype$NUMBER.OF.MOTORIST.INJURED
+
+vtype$total_mortality <- vtype$NUMBER.OF.PERSONS.KILLED + vtype$NUMBER.OF.PEDESTRIANS.KILLED + vtype$NUMBER.OF.CYCLIST.KILLED + vtype$NUMBER.OF.MOTORIST.KILLED
+
+vtype <- vtype[,-(1:8)]
+head(vtype)
+```
+
+Next we'll gather all vehicle types into one column. We'll filter out NAs and any empty cells. After, we'll remove the vehicle report number (i.e. vehicle 1, vehicle 2... vehicle 5 reported in the collision) for our final table.
+
+```{r}
+vtype <- gather(vtype, "vehicle_number", "vehicle_type", 1:5, na.rm=TRUE) %>% filter(vehicle_type>0) %>% select(-vehicle_number)
+head(vtype)
+```
+
+Right now, our table has repeated vehicle_types (i.e. sedan appears more than once) because each row represents a report where that vehicle_type was involved, in addition to the total_injury and total_mortality counts that occurred in that report. Let's go ahead and make a final table that groups by vehicle_type and sums total_injury and total_mortality. This will ultimately give us a table of unique vehicle_types, that is not repeated vehicle types, with a count of injuries in total and by injury type, and a count of mortality in total and by mortality type across reports in 2018.
+
+```{r}
+vtype_final <- vtype %>% group_by(vehicle_type) %>% summarise_all(funs(sum))
+vtype_final
+```
+
+Immediately we can see that there are 637 vehicle_type that have been reported but those vehicle_type values look messy. For example Amb, AMB, ambu, AMBU, ambul, Ambul, AMbul, AMBUL, Ambulance, and AMBULANCE all seem to reference Ambulance. This part of the cleaning would require more context as to how the vehicle_type values were inputted into the data file. Since we don't want to assume what vehicle_types belong to each other, we can hold off on that. However, if we did have that information, we would be able to find and match strings, and recalculate the total_injury, for example, all vehicle_types that are related to AMBULANCE we could recalculate total sums for.
+
+Also note that there are 0 values. This means that though that vehicle_type was involved in a reported motor vehicle collision, there were no reports of injury or mortality.
+
+### 3. Visualize relationship between vehicle type and injury
+
+#### Top Vehicle Types With Greatest Reports of Injury
+
+Top 10
+
+```{r}
+ggplot(top_n(vtype_final, 10, total_injury), aes(x=reorder(vehicle_type, total_injury), y=total_injury)) + geom_bar(stat="identity") + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + xlab("Vehicle Type") + ylab("Total Injury Count") + ggtitle("Top 10 Vehicle Types with Greatest Reports of Injury") + geom_text(aes(label=total_injury),hjust=-.2, vjust=.5) + ylim(0,40000) + coord_flip() + theme(plot.title=element_text( hjust=2, vjust=0.5, face='bold'))
+```
+
+Passenger Vehicle (35042) and Sport Utility/Station Wagons (26295) have the highest reports of injury.
+
+Top 20
+
+```{r}
+ggplot(top_n(vtype_final, 20, total_injury), aes(x=reorder(vehicle_type, total_injury), y=total_injury)) + geom_bar(stat="identity") + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + xlab("Vehicle Type") + ylab("Total Injury Count") + ggtitle("Top 20 Vehicle Types with Greatest Reports of Injury") + geom_text(aes(label=total_injury),hjust=-.2, vjust=.5) + ylim(0,40000) + coord_flip() + theme(plot.title=element_text( hjust=2, vjust=0.5, face='bold'))
+```
+
+When we expand to top 20, we see the words pick-up truck appear again since the string formatting is different, however they likely represent the same vehicle_type. Notably, we also have Convertable, a Tractor Truck Diesel (another type of Truck), and Ambulance joining the top 20 list.
+
+#### Vehicle Type Effect on Injury Type
+
+Let's explore who the top vehicle types (i.e Passenger Vehicle (35042) and Sport Utility/Station Wagons (26295)) are injuring. 
+
+To explore this we'll need our data formatted in a way we can group by injury type. The code for that is below.
+
+```{r warning=FALSE}
+vtype <- df18[,11:29]
+vtype <- vtype[,-c(9:13)] %>% select(-UNIQUE.KEY)
+
+vtype_group <- vtype %>% gather("type_injury", "injury_count", c("NUMBER.OF.PERSONS.INJURED","NUMBER.OF.PEDESTRIANS.INJURED","NUMBER.OF.CYCLIST.INJURED","NUMBER.OF.MOTORIST.INJURED"))
+
+vtype_group <- vtype_group %>% gather("type_mortality", "mortality_count", c("NUMBER.OF.PERSONS.KILLED","NUMBER.OF.PEDESTRIANS.KILLED","NUMBER.OF.CYCLIST.KILLED","NUMBER.OF.MOTORIST.KILLED"))
+
+vtype_group <- vtype_group %>% gather("vehicle_number", "vehicle_type", 1:5)
+head(vtype)
+```
+Vehicle Type Effect on Injury Type
+
+```{r}
+x <- select(vtype_group, vehicle_type, type_injury, injury_count) %>% filter(vehicle_type=="PASSENGER VEHICLE" | vehicle_type=="SPORT UTILITY / STATION WAGON" | vehicle_type=="Bike") %>% group_by(vehicle_type, type_injury) %>% summarise(sum(injury_count))
+colnames(x) <- c("vehicle_type", "type_injury", "injury_count")
+
+ggplot(x, aes(x=type_injury, y=injury_count, fill=vehicle_type)) + geom_bar(stat="identity") + facet_grid(vehicle_type~.) + ylab("Total Injury Count") + ggtitle("Top 3 Vehicle Types and Most Reported Injury Type") + theme(plot.title=element_text(face='bold')) + guides(fill=FALSE) + scale_x_discrete("Injury Type", labels=c("Cyclist", "Motorist", "Pedestrians", "Persons"))
+```
+
+* Cyclists and Persons are most hurt on bikes.
+* Motorists and Persons are most hurt on Passenger Vechicles and Sport Utility/Station Wagons.
+
+#### Data Table 
+
+I'll include the exact numbers on the top 3 vehicle types causing injuries and the injury type (or individual who was injured) in the table below.
+
+```{r}
+DT::datatable(x)
+```
+
+### 4. Visualize relationship between vehicle type and mortality
+
+#### Top Vehicle Types With Greatest Reports of Mortality
+
+Top 10
+
+```{r}
+ggplot(top_n(vtype_final, 10, total_mortality), aes(x=reorder(vehicle_type, total_mortality), y=total_mortality)) + geom_bar(stat="identity") + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + xlab("Vehicle Type") + ylab("Total Mortality Count") + ggtitle("Top 10 Vehicle Types with Greatest Reports of Mortality") + geom_text(aes(label=total_mortality),hjust=-.2, vjust=.5) + ylim(0, 100) + coord_flip() + theme(plot.title=element_text( hjust=1.5, vjust=0.5, face='bold'))
+```
+
+Passenger Vehicle (86), Sport Utility/Station Wagon (76), and Motorcycle (64) have the highest reports of mortality.
+
+Top 20
+
+```{r}
+ggplot(top_n(vtype_final, 20, total_mortality), aes(x=reorder(vehicle_type, total_mortality), y=total_mortality)) + geom_bar(stat="identity") + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + xlab("Vehicle Type") + ylab("Total Mortality Count") + ggtitle("Top 20 Vehicle Types with Greatest Reports of Mortality") + geom_text(aes(label=total_mortality),hjust=-.2, vjust=.5) + ylim(0, 100) + coord_flip() + theme(plot.title=element_text( hjust=1.5, vjust=0.5, face='bold'))
+```
+
+When we expand to top 20, we see Motorscooter, MOTORCYCLE, Motorbike, Moped, and Minicycle. It seems these represent two wheeled vehicles similar to a Motorcycle which is in the top 3 vehicle types with greatest reports of mortality. 
+
+#### Vehicle Type Effect on Mortality Type
+
+Finally, let's look at mortality types of the top vehicle types with the highest reports of mortality (i.e Passenger Vehicle (35042) and Sport Utility/Station Wagons (26295)).
+
+```{r}
+x <- select(vtype_group, vehicle_type, type_mortality, mortality_count) %>% filter(vehicle_type=="PASSENGER VEHICLE" | vehicle_type=="SPORT UTILITY / STATION WAGON" | vehicle_type=="Motorcycle") %>% group_by(vehicle_type, type_mortality) %>% summarise(sum(mortality_count))
+colnames(x) <- c("vehicle_type", "type_mortality", "mortality_count")
+
+ggplot(x, aes(x=type_mortality, y=mortality_count, fill=vehicle_type)) + geom_bar(stat="identity") + facet_grid(vehicle_type~.) + ylab("Total Mortality Count") + ggtitle("Top 3 Vehicle Types and Most Reported Mortality Type") + theme(plot.title=element_text(face='bold')) + guides(fill=FALSE) + scale_x_discrete("Mortality Type", labels=c("Cyclist", "Motorist", "Pedestrians", "Persons"))
+```
+
+#### Data Table 
+The table below includes the exact numbers on the top 3 vehicle types causing deaths and the death type (or individual who was killed) in the table below.
+
+```{r}
+DT::datatable(x)
+```
+
+### 5. Conclude relationship between vehicle type, injury, and mortality rate
+
+We analyzed the 637 unique vehicle types and the following information was apparent. Passenger Vehicle (35042, 86) and Sport Utility/Station Wagons (26295, 76) had the highest reports of injury and mortality. 
+
+Bike (8071) came in third for highest report of injury, while Motorcycle came in third for highest report of mortality (64).
+
+In investigating top 20 highest reports of mortality, we saw a pattern in 2 wheeled vehicle types, for example the types of Motorscooter, MOTORCYCLE, Motorbike, Moped, and Minicycle also joined the top 20 list with Motorcycle. 2 wheeled vehicles appeared more often in top 20 highest reports of mortality than top 20 highest reports of injury. This suggested that while there are high reports of injury on 2 wheeled vehicle types (e.g. motorcycles), there are more often high reports of mortality on 2 wheeled vehicle types. Furthermore, in investigating the impact vehicle types on injuries and deaths, we found that two wheeled vehicles such as motorcycle and bikes result mostly in an injury of the biker or motorcyclist and surrounding persons during the collision.
+
+Overall, we found that persons and motorcyclists were the most injured, while persons, motorcylists, and pedestrians were most killed during the top 3 motor vehicle collisions. Sport Utility/Station Wagon and Passenger Vehicle vehicle types shared similar patterns in injuring mostly motorists and persons and also killing persons, pedestrians, and motorists. Note: Sport Utility/Station Wagon had the only 4 reports of cyclists deaths out of the three. 
+
+### 6. Discuss limitations and concerns
+
+We did not combine any possibly related strings of vehicle_types (e.g. AMmb, Ambul, and Ambulance) during our analysis since we did not want to make any wrong assumptions. However, in the future, this could be done by finding and matching approriate strings, and then we would recalculate the total injury and total mortality rates based on vehicle types.
+
+Also note that there were 0 values. This means that though vehicle_type was involved in a reported motor vehicle collision, there were no reports of injury or mortality. This did not apply to our presented analysis but a future analysis would consider an average rate per vehicle type of injury or mortality, which would require all reports, including those with 0 values. So for each vehicle type the average rate would be calculated by dividing the total number of injuries by the total number of that vehicle type.
